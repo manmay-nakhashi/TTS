@@ -63,18 +63,17 @@ class WN(torch.nn.Module):
         if c_in_channels > 0:
             cond_layer = torch.nn.Conv1d(c_in_channels, 2 * hidden_channels * num_layers, 1)
             self.cond_layer = torch.nn.utils.weight_norm(cond_layer, name="weight")
+        # init proj layer
+        if self.in_channels != self.hidden_channels:
+            self.proj_layer = torch.nn.Conv1d(self.in_channels, self.hidden_channels, 1)
+            self.proj_layer = torch.nn.utils.weight_norm(self.proj_layer, name="weight")
         # intermediate layers
         for i in range(num_layers):
             dilation = dilation_rate**i
             padding = int((kernel_size * dilation - dilation) / 2)
-            if i == 0:
-                in_layer = torch.nn.Conv1d(
-                    in_channels, 2 * hidden_channels, kernel_size, dilation=dilation, padding=padding
-                )
-            else:
-                in_layer = torch.nn.Conv1d(
-                    hidden_channels, 2 * hidden_channels, kernel_size, dilation=dilation, padding=padding
-                )
+            in_layer = torch.nn.Conv1d(
+                hidden_channels, 2 * hidden_channels, kernel_size, dilation=dilation, padding=padding
+            )
             in_layer = torch.nn.utils.weight_norm(in_layer, name="weight")
             self.in_layers.append(in_layer)
 
@@ -96,6 +95,8 @@ class WN(torch.nn.Module):
         x_mask = 1.0 if x_mask is None else x_mask
         if g is not None:
             g = self.cond_layer(g)
+        if self.in_channels != self.hidden_channels:
+            x = self.proj_layer(x)
         for i in range(self.num_layers):
             x_in = self.in_layers[i](x)
             x_in = self.dropout(x_in)
@@ -114,6 +115,8 @@ class WN(torch.nn.Module):
         return output * x_mask
 
     def remove_weight_norm(self):
+        if self.in_channels != self.hidden_channels:
+            torch.nn.utils.remove_weight_norm(self.proj_layer)
         if self.c_in_channels != 0:
             torch.nn.utils.remove_weight_norm(self.cond_layer)
         for l in self.in_layers:
